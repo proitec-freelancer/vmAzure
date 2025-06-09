@@ -1,19 +1,32 @@
 # main.tf
 # Proveedor de Azure
 provider "azurerm" {
-  features {} # Configuración por defecto, necesario declararlo aunque esté vacío
+  features {}
+}
+
+# Variables
+variable "location" {
+  description = "Ubicación de los recursos en Azure"
+  type        = string
+  default     = "East US"
+}
+
+variable "vm_size" {
+  description = "Tamaño de la máquina virtual"
+  type        = string
+  default     = "Standard_B1s"
 }
 
 # Recurso: Grupo de recursos
 resource "azurerm_resource_group" "rg" {
   name     = "rg-terra-vm"
-  location = "East US"  # Región económica, puedes cambiar a otra barata como "East US 2"
+  location = var.location
 }
 
 # Recurso: Red virtual
 resource "azurerm_virtual_network" "vnet" {
   name                = "vnet-terra"
-  address_space       = ["10.0.0.0/16"] # Rango de IPs
+  address_space       = ["10.0.0.0/16"]
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
 }
@@ -31,7 +44,26 @@ resource "azurerm_public_ip" "public_ip" {
   name                = "pip-terra"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
-  allocation_method   = "Dynamic" # IP dinámica más barata
+  allocation_method   = "Static"
+}
+
+# Recurso: Grupo de seguridad de red (NSG)
+resource "azurerm_network_security_group" "nsg" {
+  name                = "nsg-terra"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+
+  security_rule {
+    name                       = "SSH"
+    priority                   = 1001
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "22"
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
+  }
 }
 
 # Recurso: Interfaz de red
@@ -48,32 +80,38 @@ resource "azurerm_network_interface" "nic" {
   }
 }
 
+# Asociación NIC con NSG
+resource "azurerm_network_interface_security_group_association" "nic_nsg_assoc" {
+  network_interface_id      = azurerm_network_interface.nic.id
+  network_security_group_id = azurerm_network_security_group.nsg.id
+}
+
 # Recurso: Máquina Virtual
 resource "azurerm_linux_virtual_machine" "vm" {
   name                = "vm-terra"
   resource_group_name = azurerm_resource_group.rg.name
   location            = azurerm_resource_group.rg.location
-  size                = "Standard_B1s"  # Instancia más barata
+  size                = var.vm_size
 
-  admin_username = "azureuser" # Usuario para login
+  admin_username = "azureuser"
   network_interface_ids = [
     azurerm_network_interface.nic.id,
   ]
 
   admin_ssh_key {
     username   = "azureuser"
-    public_key = file("~/.ssh/id_rsa.pub") # Ruta de tu llave pública local
+    public_key = file("~/.ssh/maqAzure.pub")
   }
 
   os_disk {
     caching              = "ReadWrite"
-    storage_account_type = "Standard_LRS" # Disco HDD estándar, más económico
+    storage_account_type = "Standard_LRS"
   }
 
   source_image_reference {
     publisher = "Canonical"
     offer     = "UbuntuServer"
-    sku       = "18.04-LTS"  # Imagen liviana, segura y gratuita
+    sku       = "18.04-LTS"
     version   = "latest"
   }
 }
